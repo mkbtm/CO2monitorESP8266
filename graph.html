@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset=”UTF-8”>
+    <title>ESP8266+SCD30 CO2 log</title>
+    <script src=”https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.19.1/moment.min.js”></script>
+    <script src=”https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.1.4/Chart.min.js”></script>
+    <meta name=”viewport” content=”width=device-width, initial-scale=1.0”>
+
+  </head>
+  <body onload=”setDate()”>
+    <h1>ESP8266+SCD30 log</h1>
+    <h2 id=”room”></h2>
+    <form name=”date”>
+      <input type=”text” name=”year” size=”5”>
+      <input type=”text” name=”month” size=”3”>
+      <input type=”text” name=”day” size=”3”>
+      <input type=”button” onclick=”prevDay();” value=”◀︎”>
+      <input type=”button” onclick=”nextDay();” value=”▶︎”>
+
+    </form>
+    <div style=”width:600px; height:320px;”>
+    <canvas id=”co2Graph” class=”graph”></canvas>
+    </div>
+
+  <div style=”width:600px; height:320px;”>
+  <canvas id=”tempGraph” class=”graph”></canvas>
+  </div>
+
+  <div style=”width:600px; height:320px;”>
+    <canvas id=”humGraph” class=”graph”></canvas>
+    </div>
+
+  </body>
+  <script>
+    var dayString;
+    var humidityChart;
+    var co2Chart;
+    var temperatureChart;
+
+    var id = getID();
+    getRoomName();//部屋の名前を表示
+
+    function getID(){
+        console.log(“getID”);
+        var url   = location.href;
+        console.log(“url=” + url);
+        parameters = url.split(“?”);
+        console.log(“id=” + parameters[1]);
+        return parameters[1];
+    }
+
+
+    //センサーのIDと部屋の名前を
+    function getRoomName(){
+      var today = new Date();//部屋番号を更新するためのダミーURLを作る
+      var year = today.getFullYear();
+      var month = today.getMonth()+1;
+      var day = today.getDate();
+      var hour = today.getHours();
+      var min = today.getMinutes();
+      var request = new XMLHttpRequest();
+      var URL = “../roomName.csv?d=” +  year + month + day + hour + min;
+      request.open(‘GET’, URL, true);
+      request.onload = function(){
+        setRoomName(request.responseText);
+      }
+      request.send(null); // HTTPリクエストの発行
+    }
+
+    //部屋の名前を読み込んだ後に実行、tableに部屋の名前を入れる。
+    function setRoomName(str){
+      var idArray = str.split(“\n”); 
+      for(var i=0;i<idArray.length;++i){
+        var idRoom = idArray[i].split(“,”);
+        //var Id = idRoom[0];
+        //var roomName = idRoom[1];
+        console.log(idRoom[1]);
+        //部屋の名前を表示する。
+        if (id == idRoom[0]){
+          var roomNameID = document.getElementById(“room”);
+          roomNameID.innerHTML = idRoom[1];
+        }
+      }
+    }
+
+
+    function setDate(){
+      var today = new Date();
+      document.date.year.value = today.getFullYear();
+      document.date.month.value = today.getMonth()+1;
+      document.date.day.value = today.getDate();
+      loadData();
+    }
+
+    function loadData(){
+      var year = document.date.year.value;
+      var month = document.date.month.value;
+      var day = document.date.day.value;
+
+      sendDateToServerPHP();
+      setTimeout(loadData, 1*60*1000);
+    }
+
+    function nextDay(){
+      var year = document.date.year.value;
+      var month = document.date.month.value;
+      var day = document.date.day.value;
+
+      day = Number(day) + 1;
+      var nD = new Date(year, month-1, day);
+      document.date.year.value = nD.getFullYear();
+      document.date.month.value = nD.getMonth()+1;
+      document.date.day.value = nD.getDate();
+
+      sendDateToServerPHP();
+    }
+
+    function prevDay(){
+      var year = document.date.year.value;
+      var month = document.date.month.value;
+      var day = document.date.day.value;
+
+      day = Number(day) - 1;
+      var pD = new Date(year, month-1, day);
+      document.date.year.value = pD.getFullYear();
+      document.date.month.value = pD.getMonth()+1;
+      document.date.day.value = pD.getDate();
+
+      sendDateToServerPHP();
+    }
+
+
+    function sendDateToServerPHP(){
+      var year = document.date.year.value;
+      var month = document.date.month.value;
+      var day = document.date.day.value;
+
+      console.log(“y=” + year + “ m=” + month + “ d=” + day);
+      dayString = year + “/” + month + “/” + day;
+
+      var request = new XMLHttpRequest();
+      var URL = “../dataDaySelect.php?year=” + year + “&month=” + month + “&day=” + day + “&id=” + id;
+      request.open(‘GET’, URL, true);
+      request.send(null); // HTTPリクエストの発行
+
+      request.onload = function(){
+        convertCSVtoArray(request.responseText);
+      }
+    }
+
+
+    function convertCSVtoArray(str){ // 読み込んだCSVデータが文字列として渡される
+      var result = []; // 最終的な二次元配列を入れるための配列
+      var tmp = str.split(“\n”); // 改行を区切り文字として行を要素とした配列を生成
+
+      // 各行ごとにカンマで区切った文字列を要素とした二次元配列を生成
+      for(var i=0;i<tmp.length;++i){
+        result[i] = tmp[i].split(‘,’);
+      }
+
+      var temp= [];
+      var co2= [];
+      var humidity= [];
+      var time = [];
+      for(var i=0;i<tmp.length;++i){
+        time[i] = result[i][0];
+        co2[i] = result[i][1];
+        temp[i] = result[i][2];
+        humidity[i] = result[i][3];
+      }
+
+      drawLineGraph(time,co2);
+      drawLineGraphTemp(time,temp);
+      drawLineGraphHum(time,humidity);
+    }
+
+  function drawLineGraphHum(time,humidity){
+    var ctx = document.getElementById(“humGraph”);
+    if (humidityChart) {
+      humidityChart.destroy();
+    }
+    humidityChart = new Chart(ctx, {
+    type: ‘scatter’,
+    data: {
+      labels:time,
+      datasets: [
+        {
+          label: ‘humidity[%]’,
+          data: humidity,
+          borderColor: “rgba(255,0,0,1)”,
+          backgroundColor: “rgba(0,0,0,0)”,
+          pointRadius: 0.5,
+          borderWidth:0.5
+        }
+      ],
+    },
+    options: {
+      title: {
+        display: true,
+        text: ‘humidity[%]’
+      },
+      legend: {
+        display: false
+      },
+      tooltips: {
+            enabled: false
+      },
+      animation:false,
+      scales: {
+        yAxes: [{
+          ticks: {
+            suggestedMax: 100,
+            suggestedMin: 0,
+            stepSize: 10,
+          }
+        }],
+        xAxes: [{
+          type: “time”,
+          ticks: {
+
+          },
+          time: {
+            min: dayString + “ 0:00”,
+            max: dayString + “ 23:59”,
+            unit: “hour”,
+            displayFormats: {
+                hour:  “H”
+            }
+          }
+        }]
+
+      },
+    }
+  })
+  }
+
+  function  drawLineGraphTemp(time,temp){
+    var ctx = document.getElementById(“tempGraph”);
+    if (temperatureChart){
+      temperatureChart.destroy();
+    }
+    temperatureChart = new Chart(ctx, {
+    type: ‘line’,
+    data: {
+      labels:time,
+      datasets: [
+        {
+          label: ‘temperature[℃]’,
+          data: temp,
+          borderColor: “rgba(255,0,0,1)”,
+          backgroundColor: “rgba(0,0,0,0)”,
+          pointRadius: 0.5,
+          borderWidth:0.5
+        }
+      ],
+    },
+    options: {
+      title: {
+        display: true,
+        text: ‘temperature[℃]’
+      },
+      legend: {
+            display: false
+      },
+      tooltips: {
+            enabled: false
+      },
+      animation:false,
+      scales: {
+        yAxes: [{
+          ticks: {
+            suggestedMax: 40,
+            suggestedMin: 0,
+            stepSize: 5,
+          }
+        }],
+        xAxes: [{
+          type: “time”,
+          ticks: {
+
+          },
+          time: {
+            min: dayString + “ 0:00”,
+            max: dayString + “ 23:59”,
+            unit: “hour”,
+            displayFormats: {
+                hour:  “H”
+            }
+          }
+        }]
+
+      },
+    }
+  })
+  }
+
+  function  drawLineGraph(time,co2){
+    var ctx = document.getElementById(“co2Graph”);
+    if (co2Chart){
+      co2Chart.destroy();
+    }
+    co2Chart = new Chart(ctx, {
+    type: ‘line’,
+    data: {
+      labels:time,
+      datasets: [
+        {
+          label: ‘CO2[ppm]’,
+          data: co2,
+          borderColor: “rgba(255,0,0,1)”,
+          backgroundColor: “rgba(0,0,0,0)”,
+          pointRadius: 0.5,
+          borderWidth:0.5
+        }
+      ],
+    },
+    options: {
+      title: {
+        display: true,
+        text: ‘CO2[ppm]’
+      },
+      legend: {
+            display: false
+      },
+      tooltips: {
+            enabled: false
+      },
+      animation:false,
+      scales: {
+        yAxes: [{
+          ticks: {
+            suggestedMax: 2000,
+            suggestedMin: 0,
+            stepSize: 500,
+          }
+        }],
+        xAxes: [{
+          type: “time”,
+          ticks: {
+
+          },
+          time: {
+            min: dayString + “ 0:00”,
+            max: dayString + “ 23:59”,
+            unit: “hour”,
+            displayFormats: {
+                hour:  “H”
+            }
+          }
+        }]
+
+      },
+    }
+  })
+  }
+
+
+  </script>
+
+</html>
