@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset=”UTF-8”>
+    <title>ESP8266+SCD30 CO2 log</title>
+    <script src=”https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.19.1/moment.min.js”></script>
+    <script src=”https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.1.4/Chart.min.js”></script>
+    <meta name=”viewport” content=”width=device-width, initial-scale=1.0”>
+
+    <style>
+
+    </style>
+
+  </head>
+  <body onload=”sendRequestToFileList()”>
+    <h1>各部屋の測定値</h1>
+    <p>過去１時間の平均値。</p>
+    <div id=”list”></div>
+    <p>部屋名をクリックで詳細グラフを表示</p>
+
+<div id=”caption”>
+  <h3>建築物における衛生的環境の確保に関する法律施行令による基準：</h3>
+  <table id=”fukaishisuu”>
+    <tr><td>CO2の含有率</td><td>1,000ppm以下</td></tr>
+      <tr><td>温度</td><td>17℃〜28℃</td></tr>
+      <tr><td>湿度</td><td>40%〜70%</td></tr>
+</table>
+  <p><a href=”https://elaws.e-gov.go.jp/search/elawsSearch/elaws_search/lsg0500/detail?lawId=345CO0000000304”>リンク</a></p>
+  <h3>不快指数：</h3>
+<table id=”fukaishisuu”>
+  <tr><td>85〜</td><td>暑くてたまらない</td></tr>
+  <tr><td>80〜85</td><td>暑くて汗が出る</td></tr>
+  <tr><td>75〜80</td><td>やや暑い</td></tr>
+  <tr><td>70〜75</td><td>暑くない</td></tr>
+  <tr><td>65〜70</td><td>快い</td></tr>
+  <tr><td>60〜65</td><td>何も感じない</td></tr>
+  <tr><td>55〜60</td><td>肌寒い</td></tr>
+  <tr><td>〜55</td><td>寒い</td></tr>
+</table>
+</div>
+
+
+  </body>
+  <script>
+    var year;
+    var month;
+    var day;
+    var hour;
+    var min;
+
+    function sendRequestToFileList(){
+      var request = new XMLHttpRequest();
+      var URL = “../filelist.php”;
+
+      var today = new Date();
+
+      year = today.getFullYear();
+      month = today.getMonth()+1;
+      day = today.getDate();
+      hour = today.getHours();
+      min = today.getMinutes();
+
+
+      request.open(‘GET’, URL, true);
+      request.send(null); // HTTPリクエストの発行
+
+      request.onload = function(){
+        fileListAddItem(request.responseText);
+      }
+    }
+
+
+    function fileListAddItem(str){ 
+        var element = document.getElementById(“list”);
+        var addHTML = “”;
+        var fileListArray = []; 
+        var fileListArray = str.split(“,”); // 改行を区切り文字として行を要素とした配列を生成
+
+        //var request = new Array(10);
+
+        addHTML +=’<table><tr><th id=”id”>ID</th><th id=”room”>部屋</th><th id=”co2”>CO2[ppm]</th><th id=”temp”>温度[℃]</th><th id=”humi”>湿度[%]</th><th id=”fukai”>不快指数</th></tr>’
+        for(var i=0;i<fileListArray.length-1;++i){
+            //idを取得
+            var id = fileListArray[i].replace(‘./data/log_’, ‘’);
+            id = id.replace(‘.csv’, ‘’);
+            //addHTML+= id + “:” + fileListArray[i] + ‘<p id=”co2’ + id + ‘”></p>’ + ‘<p id=”temp’ + id + ‘”></p>’ + ‘<p id=”hum’ + id + ‘”></p>’ + ‘<br>’;
+            addHTML+= ‘<tr><td class=”id_number” id=”ID’ + id + ‘”></td>’;
+            addHTML+= ‘<td class=”room_number” id=”room’ + id + ‘”>読み込み中...</td>’;
+            addHTML+= ‘<td class=”co2_number” id=”co2’ + id + ‘”></td>’;
+            addHTML+= ‘<td class=”temp_number” id=”temp’ + id + ‘”></td>’;
+            addHTML+= ‘<td class=”hum_number” id=”hum’ + id + ‘”></td>’;
+            addHTML+= ‘<td class=”fukai_number” id=”fukai’ + id + ‘”></td>’;
+
+            //過去１時間の平均をgetする
+            //getLastOneHourAve.phpに日付を渡す　
+            //http://mkbtm.net/NIDroom/getLastOneHourAve.php?year=2020&month=7&day=4&hour=12&min=00&id=1
+
+            /*year = 2020;//ダミーのテスト用日付
+            month = 7;
+            day = 4;
+            hour = 12;
+            min = 0;*/
+
+            let request = new XMLHttpRequest();
+            var URL = “../getLastOneHourAve.php?year=” + year + “&month=” + month + “&day=” + day + “&hour=” + hour + “&min=” + min + “&id=” + id;
+            console.log(URL)
+      
+            request.open(‘GET’, URL, true);
+            
+
+            request.onload = function(){
+              setDisplayAverage(request.responseText);
+            }
+
+            request.send(null); // HTTPリクエストの発行
+
+      }
+
+      addHTML+=’</table>’
+      element.innerHTML = addHTML;
+      getRoomName();
+    }
+
+    //センサーのIDと部屋の名前を
+    function getRoomName(){
+      var request = new XMLHttpRequest();
+      var URL = “../roomName.csv?d=” +  year + month + day + hour + min;
+      request.open(‘GET’, URL, true);
+
+      request.onload = function(){
+        setRoomName(request.responseText);
+      }
+
+      request.send(null); // HTTPリクエストの発行
+    }
+
+    //部屋の名前を読み込んだ後に実行、tableに部屋の名前を入れる。
+    function setRoomName(str){
+      var idArray = str.split(“\n”); 
+      for(var i=0;i<idArray.length;++i){
+        var idRoom = idArray[i].split(“,”);
+        var Id = idRoom[0];
+        var roomName = idRoom[1];
+        console.log(roomName);
+
+        var roomID = document.getElementById(“room”+Id);
+        //グラフ表示のリンクを設定する
+        var aHrefString = ‘<a href=”./graph.html?’ + Id + ‘”>’ + roomName + ‘</a>’;
+        roomID.innerHTML = aHrefString;
+        
+      }
+    }
+
+
+    //過去1時間の平均値をPHPから受信完了した時に実行する関数。tableに値を入れる。不快指数も計算する
+    function setDisplayAverage(str){
+      console.log(“str:” + str)
+      var dataArray = str.split(“,”); // ,を区切り文字として行を要素とした配列を生成
+
+      var ID = dataArray[0];
+      var IDID = document.getElementById(“ID”+ID);
+      var co2ID = document.getElementById(“co2”+ID);
+      var tempID = document.getElementById(“temp”+ID);
+      var humID = document.getElementById(“hum”+ID);
+      var fukaiID = document.getElementById(“fukai”+ID);
+      
+      var T = Number(dataArray[2]);
+      var H = Number(dataArray[3]);
+      var fukaiNumber = 0.81*T + 0.01 * H *(0.99 * T - 14.3) + 46.3;
+
+      IDID.innerHTML = dataArray[0];
+      co2ID.innerHTML = Number(dataArray[1]).toFixed();
+      tempID.innerHTML = Number(dataArray[2]).toFixed(1);
+      humID.innerHTML = Number(dataArray[3]).toFixed(1);
+      fukaiID.innerHTML = fukaiNumber.toFixed(1);
+
+    }
+
+  
+
+
+  </script>
+
+</html>
